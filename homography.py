@@ -66,23 +66,27 @@ if __name__ == '__main__':
     Pw_ =  np.append(Pw, np.ones((Pw.shape[0],1)), axis=1)
 
     Twvr = np.eye(4)
-    Twvr[1,3] = -7
+    Twvr[0:3,0:3] = eulerAnglesToRotationMatrix([-np.pi,0,0])
+    Twvr[1,3] = 0.1
     Twvr[2,3] = 1.
     Twvl = np.eye(4)
-    Twvl[0:3,0:3] = eulerAnglesToRotationMatrix([0,0,0.3])
-    Twvl[1,3] = -6.5
+    Twvl[0:3,0:3] = eulerAnglesToRotationMatrix([-np.pi/2,0,0])
+    Twvl[1,3] = 0.2
     Twvl[2,3] = 1.
     Tvc = np.eye(4)
-    Tvc[0:3,0:3] = eulerAnglesToRotationMatrix([-np.pi/2,0,0])
     Twcr = np.dot(Twvr, Tvc)
     Twcl = np.dot(Twvl, Tvc)
+
+    Tclcr = np.dot(np.linalg.inv(Twcl),Twcr)
+    Tcrcl = np.linalg.inv(Tclcr)
+
 
     Tcrw = np.linalg.inv(Twcr)
     Tclw = np.linalg.inv(Twcl)
     Tcv = np.linalg.inv(Tvc)
 
-    Tvlvr = np.dot(Twvr,np.linalg.inv(Twvl))
 
+    Tvlvr = np.dot(np.linalg.inv(Twvl),Twvr)
 
     M = np.zeros([3,4])
     M[0:3,0:3] = np.eye(3)
@@ -96,11 +100,12 @@ if __name__ == '__main__':
     Rcv = Tcv[0:3,0:3]
     Rvc = np.linalg.inv(Rcv)
 
-    tmp = np.dot(cam.K,Rcv)
-    tmp = np.dot(tmp,M)
-    tmp = np.dot(tmp,Tvlvr)
-    tmp = np.dot(tmp,N)
-    tmp = np.dot(tmp,Rvc)
+    
+    R = Tcrcl[0:3,0:3]
+    t = Tcrcl[0:3,3].reshape(3,1)
+    n = np.dot(R,np.array([0,0,1])).reshape(3,1)
+    A = R - np.dot(t,n.T)
+    tmp = np.dot(cam.K,A)
     Hlr = np.dot(tmp,np.linalg.inv(cam.K))
     Hlr /= Hlr[2,2]
     print(Hlr)
@@ -117,18 +122,11 @@ if __name__ == '__main__':
     Il = Il / Il[2,:]
     Il = Il.T
 
-    Il_ = np.dot( Hlr, Ir[:,0:3].T)
+    Il_ = np.dot( Hlr, Il[:,0:3].T)
     Il_ = Il_[0:3,:]/Il_[2,:]
     Il_ = Il_.T
-    print(Ir)
     print(Il)
-
-
-
-
-
-
-
+    print(Il_)
 
 
     fig = plt.figure()
@@ -136,9 +134,9 @@ if __name__ == '__main__':
     ax1.scatter(Ir[:, 0], Ir[:, 1], c='r') 
     ax1.scatter(Il[:, 0], Il[:, 1], c='g') 
     ax1.scatter(Il_[:, 0], Il_[:, 1], c='b') 
-    #ax1.scatter(Ir__[:, 0], Ir__[:, 1], c='b') 
-    plt.xlim(0,640)
-    plt.ylim(0,480)
+    #ax1.scatter(Ir_[:, 0], Ir_[:, 1], c='b') 
+    #plt.xlim(0,640)
+    #plt.ylim(0,480)
     plt.gca().invert_yaxis()
     plt.show()
 

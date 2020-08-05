@@ -8,29 +8,10 @@ try:
 except:
     pass
 import cv2
-from math import *
-
-def euler2mat(theta):
-    R_x = np.matrix([1, 0, 0, 0, cos(theta[0]), -sin(theta[0]), 0, sin(theta[0]), cos(theta[0])]).reshape([3,3])
-    R_y = np.matrix([cos(theta[1]), 0, sin(theta[1]), 0, 1, 0, -sin(theta[1]), 0, cos(theta[1])]).reshape([3,3])
-    R_z = np.matrix([cos(theta[2]), -sin(theta[2]), 0, sin(theta[2]), cos(theta[2]), 0, 0, 0, 1]).reshape([3,3])
-    R = R_z * R_y * R_x
-    return R
-
-Rcv = euler2mat([0.8674,-0.0275,-0.0127])
-K = np.matrix([329.749817,0,341.199105,0,401.966949,178.383924,0,0,1]).reshape([3,3])
-Kinv = np.linalg.inv(K)
-Rvc = np.linalg.inv(Rcv)
-
-M = np.matrix([ 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., -1.]).reshape([3,4])
-N = np.matrix([ 1., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., -1.]).reshape([4,3])
-
-M1 = K*Rcv*M
-M2 = N*Rvc*Kinv
 
 class esm:
     def __init__(self, img, rect):
-        self.ref_img_full = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(float)/255.
+        self.ref_img_full = img.astype(float)/255.
         self.ref_img = self.ref_img_full[rect[1]:rect[1]+rect[3],rect[0]:rect[0]+rect[2]]
         self.rect = rect
         self.precompute()
@@ -38,7 +19,6 @@ class esm:
         self.H0 = np.eye(3)
         self.H0[0,2] = rect[0]
         self.H0[1,2] = rect[1]
-        self.T = np.eye(4)
         self.H = np.eye(3)
         self.last_err = np.inf
     
@@ -82,11 +62,14 @@ class esm:
             (p_cur[1,0],p_cur[1,1])),
             fill=False,color='yellow',linewidth=2)
         self.ax2.add_patch(poly)
+
+
+
         plt.pause(0.001)
         
 
     def track(self, img, show=False):
-        self.cur_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(float)/255.
+        self.cur_img = img.astype(float)/255.
         itr = 0
         if(show):
             fig = plt.figure()
@@ -109,29 +92,28 @@ class esm:
             self.last_err = err
             print('itr %d, err:%f'%(itr,err))
             Ji = (self.image_gradient(cur_img) + self.ref_dxdy)/2.
-            J = np.zeros([self.rect[2],self.rect[3],3])
+            J = np.zeros([self.rect[2],self.rect[3],3,8])
             for u in range(self.rect[2]):
                 for v in range(self.rect[3]):
                     J[v,u] = np.dot(Ji[v,u,:], self.JwJg[v,u,:,:])
-            J = J.reshape(-1,3)
+            J = J.reshape(-1,8)
             hessian = np.dot(J.T,J)
             hessian_inv = np.linalg.inv(hessian)
             temp = -np.dot(J.T,residuals)
             x0 = np.dot(hessian_inv,temp)
 
-            A = np.zeros([4,4])
+            A = np.zeros([3,3])
             for i in range(len(self.A)):
                 A += x0[i] * self.A[i]
 
-            dT = self.exp(A)
+            dH = self.exp(A)
 
-            self.T = np.dot(self.T,dT)
-            self.H = M1 * self.T * M2
+            self.H = np.dot(self.H,dH)
             itr+=1
 
     def exp(self,A):
-        G = np.zeros([4,4])
-        A_factor = np.eye(4)
+        G = np.zeros([3,3])
+        A_factor = np.eye(3)
         i_factor = 1.
         for i in range(9):
             G += A_factor/i_factor
@@ -156,25 +138,31 @@ class esm:
         dx[-1,:] = 0.
         dy[:,-1] = 0.
         dy[-1,:] = 0.
-        return np.dstack([dx,dy])
+        return np.stack([dx,dy],3)
 
 
 
 
     def precompute(self):
-        A1 = np.matrix([0,0,0,1, 0,0,0,0, 0,0,0,0, 0,0,0,0.]).reshape([4,4])
-        A2 = np.matrix([0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,0.]).reshape([4,4])
-        A3 = np.matrix([0,-1,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0.]).reshape([4,4])
+        A1 = np.array([0,0,1,0,0,0,0,0,0.]).reshape([3,3])
+        A2 = np.array([0,0,0,0,0,1,0,0,0.]).reshape([3,3])
+        A3 = np.array([0,1,0,0,0,0,0,0,0.]).reshape([3,3])
+        A4 = np.array([0,0,0,1,0,0,0,0,0.]).reshape([3,3])
+        A5 = np.array([1,0,0,0,-1,0,0,0,0.]).reshape([3,3])
+        A6 = np.array([0,0,0,0,-1,0,0,0,1.]).reshape([3,3])
+        A7 = np.array([0,0,0,0,0,0,1,0,0.]).reshape([3,3])
+        A8 = np.array([0,0,0,0,0,0,0,1,0.]).reshape([3,3])
+        self.A = [A1,A2,A3,A4,A5,A6,A7,A8]
 
-        H1 = M1 * A1 * M2
-        H2 = M1 * A2 * M2
-        H3 = M1 * A3 * M2
-
-        self.Jg = np.vstack([H1.flatten(),
-            H2.flatten(),
-            H3.flatten()]).T
-        self.Jg = np.array(self.Jg)
-        self.A = [A1,A2,A3]
+        self.Jg = np.vstack([A1.flatten(),
+            A2.flatten(),
+            A3.flatten(),
+            A4.flatten(),
+            A5.flatten(),
+            A6.flatten(),
+            A7.flatten(),
+            A8.flatten()]).T
+        self.A = [A1,A2,A3,A4,A5,A6,A7,A8]
 
         u, v = np.meshgrid( range(self.rect[2]), range(self.rect[3]))
         self.Jw = np.zeros([self.rect[2],self.rect[3],2,9])
@@ -202,7 +190,7 @@ def shift_x(image, shift):
    h, w = image.shape[:2]
    src = np.array([[0.0, 0.0],[0.0, 1.0],[1.0, 0.0]], np.float32)
    dest = src.copy()
-   dest[:,0] += shift
+   dest[:,0] += shift # シフトするピクセル値
    affine = cv2.getAffineTransform(src, dest)
    return cv2.warpAffine(image, affine, (w, h))
 
@@ -211,10 +199,12 @@ if __name__ == "__main__":
     #ref_img = cv2.imread('/home/liu/bag/lookdown/gain4/frame0754.png')
     #tar_img = cv2.imread('/home/liu/bag/lookdown/gain4/frame0755.png')
     
-    ref_img = cv2.imread('/home/liu/bag/wlo60/frame0100.png')
-    ref_img = cv2.GaussianBlur(ref_img, (5, 5), 3)
-    tar_img = cv2.imread('/home/liu/bag/wlo60/frame0110.png')
-    tar_img = cv2.GaussianBlur(ref_img, (5, 5), 3)
+    ref_img = cv2.imread('/home/liu/DP_DATA/COCO/val2017/000000002923.jpg')
+    ref_img = cv2.resize(ref_img, (640,480))
+    ref_img = cv2.GaussianBlur(ref_img, (15, 15), 3)
+    #tar_img = cv2.imread('/home/liu/DP_DATA/COCO/val2014/COCO_val2014_000000000285.jpg')
+    tar_img = shift_x(ref_img, 20)
+    plt.imshow(tar_img)
     #ref_img = cv2.imread('/home/liu/bag/lookdown/gain4/frame0260.png')
     #tar_img = cv2.imread('/home/liu/bag/lookdown/gain4/frame0261.png')
     esm = esm(ref_img, [400, 100, 160, 160]) #x,y,weight,height
